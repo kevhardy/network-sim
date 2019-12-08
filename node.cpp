@@ -16,19 +16,19 @@ using std::unordered_set;
 
 class Node {
  public:
-  int id;     // id of this node
-  int dest;   // id of destinatoin node
-  int dur;    // duration of process life in seconds
-  char* msg;  // message string to be sent
-  int delay;  // time to wait before transmitting message in seconds
+  int id;      // id of this node
+  int dest;    // id of destinatoin node
+  int dur;     // duration of process life in seconds
+  char* data;  // message string to be sent
+  int delay;   // time to wait before transmitting message in seconds
   unordered_set<int> neighbors;   // list of neighboring nodes by id
   unordered_map<int, int> files;  // file descriptors for each neighbor
 
-  Node(int id = 0, int dur = 0, int dest = 0, char* msg = 0, int delay = 100)
+  Node(int id = 0, int dur = 0, int dest = 0, char* data = 0, int delay = 100)
       : id(id),
         dur(dur),
         dest(dest),
-        msg(msg),
+        data(data),
         delay(delay),
         neighbors(),
         files() {}
@@ -39,17 +39,48 @@ class Node {
 
     // Looping through all channels
     for (auto fdpair : files) {
-      int n = fdpair.first; // current neighbor
-      int fd = fdpair.second; // fd for this neighbor's channel
+      int n = fdpair.first;    // current neighbor
+      int fd = fdpair.second;  // fd for this neighbor's channel
+
+      struct Message {
+        int length;
+        string data;
+        int checksum;
+      } msg;
+
+      string tempLen;
+      string tempCheck;
+      bool parsing = false;
 
       printf("neighbor id %d read: start\n", n);
       while ((bytes = read(fd, buf, 100)) != 0) {
-        printf("Cur Buffer: %s\n", buf);
-        printf("child: # bytes read %d which were: %s\n", bytes, buf);
+        for (int i = 0; i < bytes; i++) {
+          try {
+            char cur = buf[i];
 
-        /* for (int i = 0; i < bytes; i++) {
-          char cur = buf[i];
-        } */
+            // Start of message
+            if (cur == 'S' && !parsing) {
+              parsing = true;
+
+              // Getting message length
+              tempLen += buf[++i];
+              tempLen += buf[++i];
+              if (!isdigit(tempLen[0]) || !isdigit(tempLen[1]) ) throw 1;
+              msg.length = stoi(tempLen);
+
+              printf("LENGTH IS: %d\n", msg.length);
+
+              continue;
+            }
+          } catch (...) {
+            cout << "Exception occured in buffer read. Scanning for next 'S'.\n";
+            parsing = false;
+            tempLen = "";
+            tempCheck = "";
+            continue;
+          }
+
+        }
       }
 
       printf("neighbor id %d read: done\n\n", n);
@@ -86,7 +117,7 @@ int main(int argc, char* argv[]) {
   printf(
       "Node members:\n"
       "id: %d - dur: %d - dest: %d - message: \"%s\" - delay: %d\n",
-      host.id, host.dur, host.dest, host.msg, host.delay);
+      host.id, host.dur, host.dest, host.data, host.delay);
   cout << "neighbors: ";
   for (auto i : host.neighbors) cout << i << " ";
   cout << "\n\n";
