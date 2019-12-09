@@ -258,55 +258,70 @@ class Node {
   }
 
   void network_send_dv() {
+    // TODO MAKE THIS NEIGHBOR SPECIFIC FOR SPLIT HORIZON POISIONING BULLSHIT
     string dv_msg;
-    dv_msg.resize(12);
-    dv_msg[0] = 'R';
-    dv_msg[1] = id + 48;
-
-    // Constructing update message
-    for (int i = 2; i < 12; i++) {
-      if (costs[i - 2] == 10)
-        dv_msg[i] = 'I';
-      else
-        dv_msg[i] = costs[i - 2] + 48;
-    }
+    array<int, 10> poisoned_costs;
 
     // Send update to all neighbors
-    for (auto n : neighbors)
+    for (auto n : neighbors) {
+      dv_msg = "";
+      dv_msg.resize(12);
+      poisoned_costs = costs;
+
+      for (int d = 0; d < 10; d++) {
+        if (rtable[d] == n)
+          poisoned_costs[d] = 10;
+        else
+          poisoned_costs[d] = costs[d];
+      }
+
+      dv_msg[0] = 'R';
+      dv_msg[1] = id + 48;
+
+      // Constructing update message
+      for (int i = 2; i < 12; i++) {
+        if (poisoned_costs[i - 2] == 10)
+          dv_msg[i] = 'I';
+        else
+          dv_msg[i] = poisoned_costs[i - 2] + 48;
+      }
+      
       datalink_receive_from_network(dv_msg.c_str(), 12, (n + 48));
+    }
   }
 
   void transport_receive_from_network(char* msg) {
-    printf("Transport Layer received message from Network Layer.\n");
+  printf("Transport Layer received message from Network Layer.\n");
 
-    char msg_type = msg[0];
-    int src_id, seq_num;
-    string temp = "";
+  char msg_type = msg[0];
+  int src_id, seq_num;
+  string temp = "";
 
-    // Check for incorrect message types
-    if (msg_type != 'd' && msg_type != 'r') return;
+  // Check for incorrect message types
+  if (msg_type != 'd' && msg_type != 'r') return;
 
-    // Transport Data Message
-    if (msg_type == 'd') {
-      src_id = msg[1] - 48;
-      temp += msg[3];
-      temp += msg[4];
-      if (!isdigit(temp[0]) || !isdigit(temp[1]))
-        throw "Message length must be digits.";
-      seq_num = stoi(temp);
+  // Transport Data Message
+  if (msg_type == 'd') {
+    src_id = msg[1] - 48;
+    temp += msg[3];
+    temp += msg[4];
+    if (!isdigit(temp[0]) || !isdigit(temp[1]))
+      throw "Message length must be digits.";
+    seq_num = stoi(temp);
 
-      char* tp_msg = &msg[5];
-      printf("Transport Message:\nSrc: %d Sequence: %d\nMsg: %s\n", src_id,
-             seq_num, tp_msg);
+    char* tp_msg = &msg[5];
+    printf("Transport Message:\nSrc: %d Sequence: %d\nMsg: %s\n", src_id,
+           seq_num, tp_msg);
 
-      // TODO: order messages by their source and sequence number
+    // TODO: order messages by their source and sequence number
 
-      // Transport Redundant Message
-    } else {
-      // TODO: Redundant Message parsing and ordering
-    }
+    // Transport Redundant Message
+  } else {
+    // TODO: Redundant Message parsing and ordering
   }
-};
+}
+}
+;
 
 int main(int argc, char* argv[]) {
   Node host;
