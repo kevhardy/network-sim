@@ -156,7 +156,6 @@ class Node {
 
       printf("- Neighbor ID #%d Read: done -\n\n", n);
     }
-    printf("host id %d datalink read: done\n\n", id);
   }
 
   void datalink_receive_from_network(const char* msg, int len, char next_hop) {
@@ -222,13 +221,12 @@ class Node {
         if (dest_id == id) {
           transport_receive_from_network(tp_msg);
         }
-
         // Destination is a neighbor
-        if (neighbors.find(dest_id) != neighbors.end()) {
+        else if (neighbors.find(dest_id) != neighbors.end()) {
           if (costs[dest_id] != 10)
             datalink_receive_from_network(msg, length + 5, msg[2]);
+        // Destination is not a neighbor    
         } else {
-          // Destination is not a neighbor
           if (costs[dest_id] != 10) {
             datalink_receive_from_network(msg, length + 5, rtable[dest_id]);
           }
@@ -259,7 +257,7 @@ class Node {
           // Check if costs need to be updated
           if (d == id)
             costs[d] = 0;
-          else if (rtable[d] == src_id || update + 1 < costs[d]) {
+          else if (update + 1 < costs[d]) {
             rtable[d] = src_id;
             costs[d] = update + 1;
             triggered_update = true;
@@ -273,7 +271,10 @@ class Node {
         cout << "\n";
 
         // If a cost has been changed then send to neighbors
-        if (triggered_update) network_send_dv();
+        if (triggered_update) {
+          printf("--- TRIGGERED ROUTE UPDATE ---\n\n");
+          network_send_dv();
+        }
       }
     } catch (...) {
       cout << "Exception thrown in network layer receive from data link.\n";
@@ -292,13 +293,12 @@ class Node {
 
     // Find next hop
     char next_hop;
-    if (costs[dest] != 10){
+    if (costs[dest] != 10) {
       next_hop = rtable[dest] + 48;
       datalink_receive_from_network(n_msg.c_str(), n_msg.length(), next_hop);
-  } else {
-    printf("\n--NO ROUTE FOUND FOR MESSAGE FROM %d to %d--\n\n", id, dest);
-  }
-    
+    } else {
+      printf("\n--NO ROUTE FOUND FOR MESSAGE FROM %d to %d--\n\n", id, dest);
+    }
   }
 
   void network_send_dv() {
@@ -346,7 +346,7 @@ class Node {
         // handle costs by route
         for (int d = 0; d < 10; d++) {
           // If current neighbor is down, then set any routes through it to inf
-          if (rtable[d] = n) costs[d] = 10;  // Set to infinity
+          if (rtable[d] == n) costs[d] = 10;  // Set to infinity
         }
       } else {
         up[n] -= 1;
@@ -410,7 +410,8 @@ int main(int argc, char* argv[]) {
 
   // Initialize host with arguments
   if (atoi(argv[1]) == atoi(argv[3])) {  // destination is itself
-    host = Node(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), 0, atoi(argv[2]));
+    host =
+        Node(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), 0, atoi(argv[2]) + 1);
     for (int i = 4; i < argc; i++) host.neighbors.insert(atoi(argv[i]));
   } else {
     host = Node(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), argv[4],
@@ -445,6 +446,13 @@ int main(int argc, char* argv[]) {
   host.costs[host.id] = 0;
   host.rtable[host.id] = host.id;
 
+  printf("INITIAL COST/ROUTES:\nCosts(B):");
+        for (int cost : host.costs) printf(" %2d", cost);
+        cout << "\n";
+        printf("Route(B):");
+        for (int route : host.rtable) printf(" %2d", route);
+        cout << "\n";
+
   printf(
       "-- Host Info --:\n"
       "id: %d - dur: %d - dest: %d - message: \"%s\" - delay: %d\n",
@@ -453,22 +461,25 @@ int main(int argc, char* argv[]) {
   for (auto i : host.neighbors) cout << i << " ";
   cout << "\n\n";
 
-  string data_str = host.data;
-  int num_of_msgs = (strlen(host.data) / 5) + 1;
-  host.substrings.resize(num_of_msgs);
+  // Divide message up if it exists
+  if (host.id != host.dest) {
+    string data_str = host.data;
+    int num_of_msgs = (strlen(host.data) / 5);
+    if (strlen(host.data) % 5 != 0) num_of_msgs += 1;
+    host.substrings.resize(num_of_msgs);
 
-  // Divide message into substrings for sending later
-  for (int i = 0; i < num_of_msgs; i++) {
-    // substring messages without padding
-    if (i != num_of_msgs - 1) {
-      host.substrings[i] = data_str.substr((i * 5), 5);
-    } else {
-      host.substrings[i] = data_str.substr((i * 5), 5);
-      for (int j = 0; j < (5 - (strlen(host.data) % 5)); j++)
-        host.substrings[i] += " ";
+    // Divide message into substrings for sending later
+    for (int i = 0; i < num_of_msgs; i++) {
+      // substring messages without padding
+      if (i != num_of_msgs - 1) {
+        host.substrings[i] = data_str.substr((i * 5), 5);
+      } else {
+        host.substrings[i] = data_str.substr((i * 5), 5);
+        for (int j = 0; j < (5 - (strlen(host.data) % 5)); j++)
+          host.substrings[i] += " ";
+      }
     }
   }
-
   int send_msg_counter = 0;
 
   // Main program loop
@@ -478,7 +489,10 @@ int main(int argc, char* argv[]) {
     host.datalink_receive_from_channel();
 
     // Only send out update costs every 15 seconds
-    if (i % 15 == 0) host.network_send_dv();
+    if (i % 15 == 0) {
+      printf("--- SENDING 15 SECOND ROUTE UPDATE ---\n\n");
+      host.network_send_dv();
+    }
 
     host.network_decrement_up_timer();
 
