@@ -215,15 +215,22 @@ class Node {
                src_id, dest_id, length, tp_msg);
 
         // Destination is this node
-        if (dest_id = id) {
+        if (dest_id == id) {
           transport_receive_from_network(tp_msg);
         }
 
         // Destination is a neighbor
-        // TODO
+        if (neighbors.find(dest_id) != neighbors.end()) {
+          if (costs[dest_id] != 10)
+            datalink_receive_from_network(msg, length+5, msg[2]);
+        } else {
+          // Destination is not a neighbor
+          if (costs[dest_id] != 10) {
+            datalink_receive_from_network(msg, length+5, rtable[dest_id]);
+          }
+        }
+        // If no conditions exist drop data message
 
-        // Destination is farther
-        // TODO
 
         // Routing message
       } else {
@@ -235,7 +242,6 @@ class Node {
         printf("         Route(B):");
         for (int route : rtable) printf(" %2d", route);
         cout << "\n";
-
         // Refresh up timer for neighbor when route msg is receieved from them
         up[src_id] = 20;
 
@@ -305,7 +311,7 @@ class Node {
 
   // Decrements all neighbor up timers by 1. If any reach 0 then we update costs
   void network_decrement_up_timer() {
-    printf("\n- Neighbors Up Check - START\nUp(B):");
+    printf("\n- Neighbors Up Check - START4\nUp(B):");
     for (int n : neighbors) printf(" %d:%2d", n, up[n]);
     cout << "\n";
 
