@@ -8,6 +8,7 @@
 #include <iostream>
 #include <vector>
 
+using std::array;
 using std::cout;
 using std::string;
 using std::to_string;
@@ -29,6 +30,8 @@ class Node {
       seq_strings;  // messages by their source id and sequence
   unordered_map<int, vector<string>>
       seq_redundants;  // redundant messages by their seq
+  array<int, 10> rtable;
+  array<int, 10> costs;
 
   Node(int id = 0, int dur = 0, int dest = 0, char* data = 0, int delay = 100)
       : id(id),
@@ -192,7 +195,20 @@ class Node {
 
         // Routing message
       } else {
-        // TODO
+        src_id = msg[1] - 48;
+        printf("Network Message(Routing):\nSrc: %d - Costs(B):", src_id);
+        for (int cost : costs) printf(" %2d", cost);
+        cout << "\n";
+
+        for (int i = 0; i < 10; i++) {
+          if (msg[i+2] != 'I')
+            costs[i] = msg[i+2] - 48;
+          else
+            costs[i] = 10;
+        }
+        printf("Src: %d - Costs(A):", src_id);
+        for (int cost : costs) printf(" %2d", cost);
+        cout << "\n";
       }
     } catch (...) {
       cout << "Exception thrown in network layer receive from data link.\n";
@@ -200,9 +216,11 @@ class Node {
   }
 
   void transport_receive_from_network(char* msg) {
+    printf("Transport Layer received message from Network Layer.\n");
+
     char msg_type = msg[0];
     int src_id, seq_num;
-    string temp = ""; 
+    string temp = "";
 
     // Check for incorrect message types
     if (msg_type != 'd' && msg_type != 'r') return;
@@ -217,8 +235,8 @@ class Node {
       seq_num = stoi(temp);
 
       char* tp_msg = &msg[5];
-      printf("Transport Message:\nSrc: %d Sequence: %d\nMsg: %s\n",
-              src_id, seq_num, tp_msg);
+      printf("Transport Message:\nSrc: %d Sequence: %d\nMsg: %s\n", src_id,
+             seq_num, tp_msg);
 
       // TODO: order messages by their source and sequence number
 
@@ -253,6 +271,20 @@ int main(int argc, char* argv[]) {
     }
     host.files[n] = fd;
   }
+
+  // Setting cost of all nodes to infinity
+  for (int i = 0; i < 10; i++) {
+    host.costs[i] = 10;
+    host.rtable[i] = 10;
+  }
+
+  // Setting neighbor costs to 1
+  for (auto n : host.neighbors) {
+    host.costs[n] = 1;
+    host.rtable[n] = n;
+  }
+  host.costs[host.id] = 0;
+  host.rtable[host.id] = host.id;
 
   printf(
       "Node members:\n"
