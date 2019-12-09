@@ -158,7 +158,8 @@ class Node {
 
   void datalink_receive_from_network(const char* msg, int len, char next_hop) {
     printf(
-        "- Datalink Receive From Network - START\nSending from%dto%c\nmsg: %s - "
+        "- Datalink Receive From Network - START\nSending from%dto%c\nmsg: %s "
+        "- "
         "len: %d\n",
         id, next_hop, msg, len);
     int fd;
@@ -222,15 +223,14 @@ class Node {
         // Destination is a neighbor
         if (neighbors.find(dest_id) != neighbors.end()) {
           if (costs[dest_id] != 10)
-            datalink_receive_from_network(msg, length+5, msg[2]);
+            datalink_receive_from_network(msg, length + 5, msg[2]);
         } else {
           // Destination is not a neighbor
           if (costs[dest_id] != 10) {
-            datalink_receive_from_network(msg, length+5, rtable[dest_id]);
+            datalink_receive_from_network(msg, length + 5, rtable[dest_id]);
           }
         }
         // If no conditions exist drop data message
-
 
         // Routing message
       } else {
@@ -277,6 +277,10 @@ class Node {
     }
   }
 
+  void network_receive_from_transport(char* msg, int len, int dest) {
+    // TODO
+  }
+
   void network_send_dv() {
     string dv_msg;
     array<int, 10> poisoned_costs;
@@ -311,7 +315,7 @@ class Node {
 
   // Decrements all neighbor up timers by 1. If any reach 0 then we update costs
   void network_decrement_up_timer() {
-    printf("\n- Neighbors Up Check - START4\nUp(B):");
+    printf("- Neighbors Up Check - START\nUp(B):");
     for (int n : neighbors) printf(" %d:%2d", n, up[n]);
     cout << "\n";
 
@@ -332,7 +336,7 @@ class Node {
     printf("Up(A):");
     for (int n : neighbors) printf(" %d:%2d", n, up[n]);
     cout << "\n";
-    printf("- Neighbors Up Check - DONE\n");
+    printf("- Neighbors Up Check - DONE\n\n");
   }
 
   void transport_receive_from_network(char* msg) {
@@ -364,6 +368,11 @@ class Node {
     } else {
       // TODO: Redundant Message parsing and ordering
     }
+  }
+
+  void transport_send_string(){
+    int data_substrings = (strlen(data) / 5) + 1;
+    printf("\nPIECES: %d\n", data_substrings);
   }
 };
 
@@ -415,14 +424,28 @@ int main(int argc, char* argv[]) {
   for (auto i : host.neighbors) cout << i << " ";
   cout << "\n\n";
 
+  int send_msg_counter = 0;
+
   // Main program loop
   for (int i = 0; i < host.dur; i++) {
+    printf("--TIME %d--\n", i);
+
     host.datalink_receive_from_channel();
 
     // Only send out update costs every 15 seconds
     if (i % 15 == 0) host.network_send_dv();
 
     host.network_decrement_up_timer();
+
+    if (i >= host.delay) {
+        // Only send string every two seconds
+        if (send_msg_counter % 2 == 0) {
+          host.transport_send_string();
+          send_msg_counter = 0;
+        }
+        send_msg_counter++;
+    }
+
 
     sleep(1);
   }
