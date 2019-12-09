@@ -155,6 +155,11 @@ class Node {
     printf("host id %d datalink read: done\n\n", id);
   }
 
+  void datalink_receive_from_network(const char* msg, int len, char next_hop) {
+    printf("DATALINK SENDING OUT:\nmsg: %s - len: %d - next_hop: %c\n", msg,
+           len, next_hop);
+  }
+
   void network_receive_from_datalink(char* msg, int neighbor_id) {
     printf("Network Layer received message from Data Link Layer.\n");
     printf("From ID: %d - Msg: %s\n", neighbor_id, msg);
@@ -196,23 +201,55 @@ class Node {
         // Routing message
       } else {
         src_id = msg[1] - 48;
-        printf("Network Message(Routing):\nSrc: %d - Costs(B):", src_id);
+        printf("Network Message(Route Update):\nSrc: %d - Costs(B):", src_id);
         for (int cost : costs) printf(" %2d", cost);
         cout << "\n";
+        printf("         Route(B):");
+        for (int route : rtable) printf(" %2d", route);
+        cout << "\n";
 
-        for (int i = 0; i < 10; i++) {
-          if (msg[i+2] != 'I')
-            costs[i] = msg[i+2] - 48;
+        for (int d = 0; d < 10; d++) {
+          int update;
+          if (msg[d + 2] != 'I')
+            update = msg[d + 2] - 48;
           else
-            costs[i] = 10;
+            update = 10;
+
+          if (d == id)
+            costs[d] = 0;
+          else if (rtable[d] == src_id || update + 1 < costs[d]) {
+            rtable[d] = src_id;
+            costs[d] = update + 1;
+          }
         }
         printf("Src: %d - Costs(A):", src_id);
         for (int cost : costs) printf(" %2d", cost);
+        cout << "\n";
+        printf("         Route(A):");
+        for (int route : rtable) printf(" %2d", route);
         cout << "\n";
       }
     } catch (...) {
       cout << "Exception thrown in network layer receive from data link.\n";
     }
+  }
+
+  void network_send_dv() {
+    string dv_msg;
+    dv_msg.resize(12);
+    dv_msg[0] = 'R';
+    dv_msg[1] = id + 48;
+
+    for (int i = 2; i < 12; i++) {
+      if (costs[i - 2] == 10)
+        dv_msg[i] = 'I';
+      else
+        dv_msg[i] = costs[i - 2] + 48;
+    }
+
+    printf("Route MSG: %s\n", dv_msg.c_str());
+    for (auto n : neighbors)
+      datalink_receive_from_network(dv_msg.c_str(), 12, (n + 48));
   }
 
   void transport_receive_from_network(char* msg) {
@@ -297,7 +334,7 @@ int main(int argc, char* argv[]) {
   // Main program loop
   for (int i = 0; i < host.dur; i++) {
     host.datalink_receive_from_channel();
-
+    host.network_send_dv();
     sleep(1);
   }
 
