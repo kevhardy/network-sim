@@ -33,6 +33,8 @@ class Node {
   array<int, 10> rtable;       // Routing table
   array<int, 10> costs;        // Cost table
   unordered_map<int, int> up;  // Tracks if neighbor is up. 0 == offline
+  vector<string> substrings;   // Substrings of data message for periodic sends
+  int substring_seq = 0;
 
   Node(int id = 0, int dur = 0, int dest = 0, char* data = 0, int delay = 100)
       : id(id),
@@ -45,7 +47,8 @@ class Node {
         distance_map(),
         seq_strings(),
         seq_redundants(),
-        up() {}
+        up(),
+        substrings() {}
 
   void datalink_receive_from_channel() {
     int bytes;
@@ -277,8 +280,8 @@ class Node {
     }
   }
 
-  void network_receive_from_transport(char* msg, int len, int dest) {
-    // TODO
+  void network_receive_from_transport(const char* msg, int len, int dest) {
+    printf("Network Received from Transport to send:\n\"%s\"\n", msg);
   }
 
   void network_send_dv() {
@@ -370,9 +373,18 @@ class Node {
     }
   }
 
-  void transport_send_string(){
-    int data_substrings = (strlen(data) / 5) + 1;
-    printf("\nPIECES: %d\n", data_substrings);
+  void transport_send_string() {
+    if (substring_seq < substrings.size()) {
+      string tp_msg = "d";
+      tp_msg += to_string(id);
+      tp_msg += to_string(dest);
+      tp_msg += substring_seq < 10 ? "0" + to_string(substring_seq)
+                                   : to_string(substring_seq);
+      tp_msg +=  substrings[substring_seq];
+      substring_seq++;
+
+      network_receive_from_transport(tp_msg.c_str(), tp_msg.length(), dest );
+    }
   }
 };
 
@@ -424,6 +436,22 @@ int main(int argc, char* argv[]) {
   for (auto i : host.neighbors) cout << i << " ";
   cout << "\n\n";
 
+  string data_str = host.data;
+  int num_of_msgs = (strlen(host.data) / 5) + 1;
+  host.substrings.resize(num_of_msgs);
+
+  // Divide message into substrings for sending later
+  for (int i = 0; i < num_of_msgs; i++) {
+    // substring messages without padding
+    if (i != num_of_msgs - 1) {
+      host.substrings[i] = data_str.substr((i * 5), 5);
+    } else {
+      host.substrings[i] = data_str.substr((i * 5), 5);
+      for (int j = 0; j < (5 - (strlen(host.data) % 5)); j++)
+        host.substrings[i] += " ";
+    }
+  }
+
   int send_msg_counter = 0;
 
   // Main program loop
@@ -438,14 +466,13 @@ int main(int argc, char* argv[]) {
     host.network_decrement_up_timer();
 
     if (i >= host.delay) {
-        // Only send string every two seconds
-        if (send_msg_counter % 2 == 0) {
-          host.transport_send_string();
-          send_msg_counter = 0;
-        }
-        send_msg_counter++;
+      // Only send string every two seconds
+      if (send_msg_counter % 2 == 0) {
+        host.transport_send_string();
+        send_msg_counter = 0;
+      }
+      send_msg_counter++;
     }
-
 
     sleep(1);
   }
