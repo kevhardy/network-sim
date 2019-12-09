@@ -36,23 +36,41 @@ class Node {
   void datalink_receive_from_channel() {
     int bytes;
     char buf[101];
+    struct Message {
+      int length = 0;
+      string data = "";
+      int checksum = 0;
+
+      bool verify_checksum() {
+        int sum = 'S';
+        string temp = to_string(length);
+        // Pad with a 0 if length is less than 10 for accurate sum calculation
+        if (length < 10) temp = "0" + temp;
+
+        sum += temp[0];
+        sum += temp[1];
+        for (auto c : data) {
+          sum += c;
+        }
+
+        if (((sum % 100) == checksum))
+          cout << "PASSED\n";
+        else
+          printf("FAILED - Checksum calc: %d\n", (sum % 100));
+
+        return ((sum % 100) == checksum);
+      }
+    } msg;
 
     // Looping through all channels
     for (auto fdpair : files) {
-      int n = fdpair.first;    // current neighbor
+      int n = fdpair.first;    // current receiving neighbor
       int fd = fdpair.second;  // fd for this neighbor's channel
-
-      struct Message {
-        int length;
-        string data;
-        int checksum;
-      } msg;
-
-      string tempLen;
-      string tempCheck;
+      string tempStr;
       bool parsing = false;
+      int parseCount = 0;
 
-      printf("neighbor id %d read: start\n", n);
+      printf("- Neighbor ID #%d Read: start -\n", n);
       while ((bytes = read(fd, buf, 100)) != 0) {
         for (int i = 0; i < bytes; i++) {
           try {
@@ -61,32 +79,68 @@ class Node {
             // Start of message
             if (cur == 'S' && !parsing) {
               parsing = true;
+              msg.data = "";
+              parseCount = 0;
 
               // Getting message length
-              tempLen += buf[++i];
-              tempLen += buf[++i];
-              if (!isdigit(tempLen[0]) || !isdigit(tempLen[1]) ) throw 1;
-              msg.length = stoi(tempLen);
+              tempStr = "";
+              tempStr += buf[++i];
+              tempStr += buf[++i];
+              if (!isdigit(tempStr[0]) || !isdigit(tempStr[1]))
+                throw "Message length must be digits.";
+              msg.length = stoi(tempStr);
+              if (msg.length < 6)
+                throw "Message length must be higher than 5";  // invalid length
 
-              printf("LENGTH IS: %d\n", msg.length);
+              printf("Length: %d\nData Parse: ", msg.length);
+            }
+            // Parsing data
+            else if (parsing && parseCount < (msg.length - 5)) {
+              msg.data += cur;
+              parseCount++;
+              cout << cur;
+            }
+            // Data finished. Parse checksum
+            else if (parsing && parseCount == (msg.length - 5)) {
+              cout << "\n";
+              parsing = false;
+              tempStr = "";
 
-              continue;
+              tempStr += buf[i];
+              tempStr += buf[++i];
+              if (!isdigit(tempStr[0]) || !isdigit(tempStr[1])) throw 1;
+              msg.checksum = stoi(tempStr);
+              printf("CheckSum: %d - ", msg.checksum);
+
+              if (msg.verify_checksum()) {
+                printf("Send this message!\n");
+              }
+
+              msg.length = 0;
+              msg.data = "";
+              msg.checksum = 0;
+              printf("\n");
             }
           } catch (...) {
-            cout << "Exception occured in buffer read. Scanning for next 'S'.\n";
+            cout
+                << "Exception occured in buffer read. Scanning for next 'S'.\n";
             parsing = false;
-            tempLen = "";
-            tempCheck = "";
+            tempStr = "";
+            parseCount = 0;
+            msg.length = 0;
+            msg.data = "";
+            msg.checksum = 0;
             continue;
           }
-
         }
       }
 
-      printf("neighbor id %d read: done\n\n", n);
+      printf("- Neighbor ID #%d Read: done -\n\n", n);
     }
     printf("host id %d datalink read: done\n\n", id);
   }
+
+  void network_receive_from_datalink(char* msg, int neighbor_id) {}
 };
 
 int main(int argc, char* argv[]) {
