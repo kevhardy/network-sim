@@ -282,6 +282,23 @@ class Node {
 
   void network_receive_from_transport(const char* msg, int len, int dest) {
     printf("Network Received from Transport to send:\n\"%s\"\n", msg);
+
+    // Build Network Data string
+    string n_msg = "D";
+    n_msg += to_string(id);
+    n_msg += to_string(dest);
+    n_msg += len < 0 ? "0" + to_string(len) : to_string(len);
+    n_msg += msg;
+
+    // Find next hop
+    char next_hop;
+    if (costs[dest] != 10){
+      next_hop = rtable[dest] + 48;
+      datalink_receive_from_network(n_msg.c_str(), n_msg.length(), next_hop);
+  } else {
+    printf("\n--NO ROUTE FOUND FOR MESSAGE FROM %d to %d--\n\n", id, dest);
+  }
+    
   }
 
   void network_send_dv() {
@@ -380,10 +397,10 @@ class Node {
       tp_msg += to_string(dest);
       tp_msg += substring_seq < 10 ? "0" + to_string(substring_seq)
                                    : to_string(substring_seq);
-      tp_msg +=  substrings[substring_seq];
+      tp_msg += substrings[substring_seq];
       substring_seq++;
 
-      network_receive_from_transport(tp_msg.c_str(), tp_msg.length(), dest );
+      network_receive_from_transport(tp_msg.c_str(), tp_msg.length(), dest);
     }
   }
 };
