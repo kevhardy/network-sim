@@ -29,9 +29,10 @@ class Node {
   unordered_map<int, vector<string>>
       seq_strings;  // messages by their source id and sequence
   unordered_map<int, vector<string>>
-      seq_redundants;     // redundant messages by their seq
-  array<int, 10> rtable;  // Routing table
-  array<int, 10> costs;   // Cost table
+      seq_redundants;          // redundant messages by their seq
+  array<int, 10> rtable;       // Routing table
+  array<int, 10> costs;        // Cost table
+  unordered_map<int, int> up;  // Tracks if neighbor is up. 0 == offline
 
   Node(int id = 0, int dur = 0, int dest = 0, char* data = 0, int delay = 100)
       : id(id),
@@ -43,7 +44,8 @@ class Node {
         files(),
         distance_map(),
         seq_strings(),
-        seq_redundants() {}
+        seq_redundants(),
+        up() {}
 
   void datalink_receive_from_channel() {
     int bytes;
@@ -137,8 +139,7 @@ class Node {
               printf("\n");
             }
           } catch (...) {
-            cout
-                << "Exception occured in buffer read. Scanning for next 'S'.\n";
+            cout << "Exception occured in dlink read. Scanning for next 'S'.\n";
             parsing = false;
             tempStr = "";
             parseCount = 0;
@@ -156,8 +157,10 @@ class Node {
   }
 
   void datalink_receive_from_network(const char* msg, int len, char next_hop) {
-    printf("DATALINK SENDING OUT:\nmsg: %s - len: %d - next_hop: %c\n", msg,
-           len, next_hop);
+    printf(
+        "- Datalink Receive From Network - START\nSending from%dto%c\nmsg: %s - "
+        "len: %d\n",
+        id, next_hop, msg, len);
     int fd;
     int sum = 0;
 
@@ -181,6 +184,7 @@ class Node {
     // Write datalink message to file and close
     write(fd, dl_msg.c_str(), dl_msg.size());
     close(fd);
+    printf("- Datalink Receieve From Network - DONE\n");
   }
 
   void network_receive_from_datalink(char* msg, int neighbor_id) {
@@ -224,6 +228,7 @@ class Node {
         // Routing message
       } else {
         src_id = msg[1] - 48;
+        bool triggered_update = false;
         printf("Network Message(Route Update):\nSrc: %d - Costs(B):", src_id);
         for (int cost : costs) printf(" %2d", cost);
         cout << "\n";
@@ -231,6 +236,10 @@ class Node {
         for (int route : rtable) printf(" %2d", route);
         cout << "\n";
 
+        // Refresh up timer for neighbor when route msg is receieved from them
+        up[src_id] = 20;
+
+        // Parse message for update costs
         for (int d = 0; d < 10; d++) {
           int update;
           if (msg[d + 2] != 'I')
@@ -238,11 +247,13 @@ class Node {
           else
             update = 10;
 
+          // Check if costs need to be updated
           if (d == id)
             costs[d] = 0;
           else if (rtable[d] == src_id || update + 1 < costs[d]) {
             rtable[d] = src_id;
             costs[d] = update + 1;
+            triggered_update = true;
           }
         }
         printf("Src: %d - Costs(A):", src_id);
@@ -251,6 +262,9 @@ class Node {
         printf("         Route(A):");
         for (int route : rtable) printf(" %2d", route);
         cout << "\n";
+
+        // If a cost has been changed then send to neighbors
+        if (triggered_update) network_send_dv();
       }
     } catch (...) {
       cout << "Exception thrown in network layer receive from data link.\n";
@@ -258,7 +272,6 @@ class Node {
   }
 
   void network_send_dv() {
-    // TODO MAKE THIS NEIGHBOR SPECIFIC FOR SPLIT HORIZON POISIONING BULLSHIT
     string dv_msg;
     array<int, 10> poisoned_costs;
 
@@ -285,43 +298,68 @@ class Node {
         else
           dv_msg[i] = poisoned_costs[i - 2] + 48;
       }
-      
+
       datalink_receive_from_network(dv_msg.c_str(), 12, (n + 48));
     }
   }
 
-  void transport_receive_from_network(char* msg) {
-  printf("Transport Layer received message from Network Layer.\n");
+  // Decrements all neighbor up timers by 1. If any reach 0 then we update costs
+  void network_decrement_up_timer() {
+    printf("\n- Neighbors Up Check - START\nUp(B):");
+    for (int n : neighbors) printf(" %d:%2d", n, up[n]);
+    cout << "\n";
 
-  char msg_type = msg[0];
-  int src_id, seq_num;
-  string temp = "";
+    // Check if all neighbors are up
+    for (auto n : neighbors) {
+      // Neighbor is down
+      if (up[n] == 0) {
+        // handle costs by route
+        for (int d = 0; d < 10; d++) {
+          // If current neighbor is down, then set any routes through it to inf
+          if (rtable[d] = n) costs[d] = 10;  // Set to infinity
+        }
+      } else {
+        up[n] -= 1;
+      }
+    }
 
-  // Check for incorrect message types
-  if (msg_type != 'd' && msg_type != 'r') return;
-
-  // Transport Data Message
-  if (msg_type == 'd') {
-    src_id = msg[1] - 48;
-    temp += msg[3];
-    temp += msg[4];
-    if (!isdigit(temp[0]) || !isdigit(temp[1]))
-      throw "Message length must be digits.";
-    seq_num = stoi(temp);
-
-    char* tp_msg = &msg[5];
-    printf("Transport Message:\nSrc: %d Sequence: %d\nMsg: %s\n", src_id,
-           seq_num, tp_msg);
-
-    // TODO: order messages by their source and sequence number
-
-    // Transport Redundant Message
-  } else {
-    // TODO: Redundant Message parsing and ordering
+    printf("Up(A):");
+    for (int n : neighbors) printf(" %d:%2d", n, up[n]);
+    cout << "\n";
+    printf("- Neighbors Up Check - DONE\n");
   }
-}
-}
-;
+
+  void transport_receive_from_network(char* msg) {
+    printf("Transport Layer received message from Network Layer.\n");
+
+    char msg_type = msg[0];
+    int src_id, seq_num;
+    string temp = "";
+
+    // Check for incorrect message types
+    if (msg_type != 'd' && msg_type != 'r') return;
+
+    // Transport Data Message
+    if (msg_type == 'd') {
+      src_id = msg[1] - 48;
+      temp += msg[3];
+      temp += msg[4];
+      if (!isdigit(temp[0]) || !isdigit(temp[1]))
+        throw "Message length must be digits.";
+      seq_num = stoi(temp);
+
+      char* tp_msg = &msg[5];
+      printf("Transport Message:\nSrc: %d Sequence: %d\nMsg: %s\n", src_id,
+             seq_num, tp_msg);
+
+      // TODO: order messages by their source and sequence number
+
+      // Transport Redundant Message
+    } else {
+      // TODO: Redundant Message parsing and ordering
+    }
+  }
+};
 
 int main(int argc, char* argv[]) {
   Node host;
@@ -358,6 +396,7 @@ int main(int argc, char* argv[]) {
   for (auto n : host.neighbors) {
     host.costs[n] = 1;
     host.rtable[n] = n;
+    host.up[n] = 0;  // Neighbors are initially down
   }
   host.costs[host.id] = 0;
   host.rtable[host.id] = host.id;
@@ -373,7 +412,12 @@ int main(int argc, char* argv[]) {
   // Main program loop
   for (int i = 0; i < host.dur; i++) {
     host.datalink_receive_from_channel();
-    host.network_send_dv();
+
+    // Only send out update costs every 15 seconds
+    if (i % 15 == 0) host.network_send_dv();
+
+    host.network_decrement_up_timer();
+
     sleep(1);
   }
 
