@@ -13,16 +13,22 @@ using std::string;
 using std::to_string;
 using std::unordered_map;
 using std::unordered_set;
+using std::vector;
 
 class Node {
  public:
   int id;      // id of this node
-  int dest;    // id of destinatoin node
+  int dest;    // id of message's destination node
   int dur;     // duration of process life in seconds
   char* data;  // message string to be sent
   int delay;   // time to wait before transmitting message in seconds
-  unordered_set<int> neighbors;   // list of neighboring nodes by id
-  unordered_map<int, int> files;  // file descriptors for each neighbor
+  unordered_set<int> neighbors;          // list of neighboring nodes by id
+  unordered_map<int, int> files;         // file descriptors for each neighbor
+  unordered_map<int, int> distance_map;  // Tracks distance to other nodes
+  unordered_map<int, vector<string>>
+      seq_strings;  // messages by their source id and sequence
+  unordered_map<int, vector<string>>
+      seq_redundants;  // redundant messages by their seq
 
   Node(int id = 0, int dur = 0, int dest = 0, char* data = 0, int delay = 100)
       : id(id),
@@ -31,7 +37,10 @@ class Node {
         data(data),
         delay(delay),
         neighbors(),
-        files() {}
+        files(),
+        distance_map(),
+        seq_strings(),
+        seq_redundants() {}
 
   void datalink_receive_from_channel() {
     int bytes;
@@ -112,8 +121,11 @@ class Node {
               msg.checksum = stoi(tempStr);
               printf("CheckSum: %d - ", msg.checksum);
 
+              // Message passed checksum. Send to network layer
               if (msg.verify_checksum()) {
-                printf("Send this message!\n");
+                char* netmsg = new char[msg.data.length() + 1];
+                strcpy(netmsg, msg.data.c_str());
+                network_receive_from_datalink(netmsg, n);
               }
 
               msg.length = 0;
@@ -140,7 +152,81 @@ class Node {
     printf("host id %d datalink read: done\n\n", id);
   }
 
-  void network_receive_from_datalink(char* msg, int neighbor_id) {}
+  void network_receive_from_datalink(char* msg, int neighbor_id) {
+    printf("Network Layer received message from Data Link Layer.\n");
+    printf("From ID: %d - Msg: %s\n", neighbor_id, msg);
+    char msg_type;
+    int src_id, dest_id, length;
+    string temp = "";  // used to concat length chars then convert to int
+
+    try {
+      msg_type = msg[0];
+      printf("Message Type: %c\n", msg_type);
+      // Incorrect message format (Network message)
+      if (msg_type != 'D' && msg_type != 'R') return;
+
+      // Data Message
+      if (msg_type == 'D') {
+        src_id = msg[1] - 48;
+        dest_id = msg[2] - 48;
+        temp += msg[3];
+        temp += msg[4];
+        if (!isdigit(temp[0]) || !isdigit(temp[1]))
+          throw "Message length must be digits.";
+        length = stoi(temp);
+
+        char* tp_msg = &msg[5];
+        printf("Network Message:\nSrc: %d - Dest: %d - Length: %d\nMsg: %s\n",
+               src_id, dest_id, length, tp_msg);
+
+        // Destination is this node
+        if (dest_id = id) {
+          transport_receive_from_network(tp_msg);
+        }
+
+        // Destination is a neighbor
+        // TODO
+
+        // Destination is farther
+        // TODO
+
+        // Routing message
+      } else {
+        // TODO
+      }
+    } catch (...) {
+      cout << "Exception thrown in network layer receive from data link.\n";
+    }
+  }
+
+  void transport_receive_from_network(char* msg) {
+    char msg_type = msg[0];
+    int src_id, seq_num;
+    string temp = ""; 
+
+    // Check for incorrect message types
+    if (msg_type != 'd' && msg_type != 'r') return;
+
+    // Transport Data Message
+    if (msg_type == 'd') {
+      src_id = msg[1] - 48;
+      temp += msg[3];
+      temp += msg[4];
+      if (!isdigit(temp[0]) || !isdigit(temp[1]))
+        throw "Message length must be digits.";
+      seq_num = stoi(temp);
+
+      char* tp_msg = &msg[5];
+      printf("Transport Message:\nSrc: %d Sequence: %d\nMsg: %s\n",
+              src_id, seq_num, tp_msg);
+
+      // TODO: order messages by their source and sequence number
+
+      // Transport Redundant Message
+    } else {
+      // TODO: Redundant Message parsing and ordering
+    }
+  }
 };
 
 int main(int argc, char* argv[]) {
