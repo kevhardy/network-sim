@@ -29,9 +29,9 @@ class Node {
   unordered_map<int, vector<string>>
       seq_strings;  // messages by their source id and sequence
   unordered_map<int, vector<string>>
-      seq_redundants;  // redundant messages by their seq
-  array<int, 10> rtable;
-  array<int, 10> costs;
+      seq_redundants;     // redundant messages by their seq
+  array<int, 10> rtable;  // Routing table
+  array<int, 10> costs;   // Cost table
 
   Node(int id = 0, int dur = 0, int dest = 0, char* data = 0, int delay = 100)
       : id(id),
@@ -158,6 +158,29 @@ class Node {
   void datalink_receive_from_network(const char* msg, int len, char next_hop) {
     printf("DATALINK SENDING OUT:\nmsg: %s - len: %d - next_hop: %c\n", msg,
            len, next_hop);
+    int fd;
+    int sum = 0;
+
+    string fname = "from" + to_string(id) + "to" + next_hop;
+    fd = open(fname.c_str(), (O_CREAT | O_WRONLY | O_APPEND), 0x1c0);
+    if (fd < 0) {
+      printf("Error opening\n");
+      exit(1);
+    }
+
+    // Construct datalink message with checksum
+    string dl_msg = "S";
+    dl_msg += (len < 5) ? "0" + to_string(len + 5) : to_string(len + 5);
+    dl_msg += msg;
+    for (auto c : dl_msg) {
+      sum += c;
+    }
+    sum %= 100;
+    dl_msg += (sum < 10) ? "0" + to_string(sum) : to_string(sum);
+
+    // Write datalink message to file and close
+    write(fd, dl_msg.c_str(), dl_msg.size());
+    close(fd);
   }
 
   void network_receive_from_datalink(char* msg, int neighbor_id) {
@@ -240,6 +263,7 @@ class Node {
     dv_msg[0] = 'R';
     dv_msg[1] = id + 48;
 
+    // Constructing update message
     for (int i = 2; i < 12; i++) {
       if (costs[i - 2] == 10)
         dv_msg[i] = 'I';
@@ -247,7 +271,7 @@ class Node {
         dv_msg[i] = costs[i - 2] + 48;
     }
 
-    printf("Route MSG: %s\n", dv_msg.c_str());
+    // Send update to all neighbors
     for (auto n : neighbors)
       datalink_receive_from_network(dv_msg.c_str(), 12, (n + 48));
   }
@@ -299,7 +323,7 @@ int main(int argc, char* argv[]) {
 
   // Open/creating file channels for reading and save file descriptors in map
   for (auto n : host.neighbors) {
-    string filename = "from" + to_string(host.id) + "to" + to_string(n);
+    string filename = "from" + to_string(n) + "to" + to_string(host.id);
     int fd = open(filename.c_str(), (O_CREAT | O_RDONLY), 0x1c0);
 
     if (fd < 0) {
@@ -324,7 +348,7 @@ int main(int argc, char* argv[]) {
   host.rtable[host.id] = host.id;
 
   printf(
-      "Node members:\n"
+      "-- Host Info --:\n"
       "id: %d - dur: %d - dest: %d - message: \"%s\" - delay: %d\n",
       host.id, host.dur, host.dest, host.data, host.delay);
   cout << "neighbors: ";
