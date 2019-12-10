@@ -160,7 +160,8 @@ class Node {
 
   void datalink_receive_from_network(const char* msg, int len, char next_hop) {
     printf(
-        "- Datalink Receive From Network - START\nSending from%dto%c\nmsg: %s "
+        "- Datalink Receive From Network - START\nSending from%dto%c\nmsg: "
+        "\"%s\" "
         "- "
         "len: %d\n",
         id, next_hop, msg, len);
@@ -214,8 +215,9 @@ class Node {
         length = stoi(temp);
 
         char* tp_msg = &msg[5];
-        printf("Network Message:\nSrc: %d - Dest: %d - Length: %d\nMsg: %s\n",
-               src_id, dest_id, length, tp_msg);
+        printf(
+            "Network Message:\nSrc: %d - Dest: %d - Length: %d\nMsg: \"%s\"\n",
+            src_id, dest_id, length, tp_msg);
 
         // Destination is this node
         if (dest_id == id) {
@@ -225,10 +227,19 @@ class Node {
         else if (neighbors.find(dest_id) != neighbors.end()) {
           if (costs[dest_id] != 10)
             datalink_receive_from_network(msg, length + 5, msg[2]);
-        // Destination is not a neighbor    
+          // Destination is not a neighbor
         } else {
           if (costs[dest_id] != 10) {
-            datalink_receive_from_network(msg, length + 5, rtable[dest_id]);
+            printf("\n\n---ABOUT TO SEND THROUGH RTABLE---\n");
+            printf("Costs:");
+            for (int cost : costs) printf(" %2d", cost);
+            cout << "\n";
+            printf("Route:");
+            for (int route : rtable) printf(" %2d", route);
+            cout << "\n";
+
+            datalink_receive_from_network(msg, length + 5,
+                                          rtable[dest_id] + 48);
           }
         }
         // If no conditions exist drop data message
@@ -288,7 +299,7 @@ class Node {
     string n_msg = "D";
     n_msg += to_string(id);
     n_msg += to_string(dest);
-    n_msg += len < 0 ? "0" + to_string(len) : to_string(len);
+    n_msg += len < 10 ? "0" + to_string(len) : to_string(len);
     n_msg += msg;
 
     // Find next hop
@@ -447,11 +458,11 @@ int main(int argc, char* argv[]) {
   host.rtable[host.id] = host.id;
 
   printf("INITIAL COST/ROUTES:\nCosts(B):");
-        for (int cost : host.costs) printf(" %2d", cost);
-        cout << "\n";
-        printf("Route(B):");
-        for (int route : host.rtable) printf(" %2d", route);
-        cout << "\n";
+  for (int cost : host.costs) printf(" %2d", cost);
+  cout << "\n";
+  printf("Route(B):");
+  for (int route : host.rtable) printf(" %2d", route);
+  cout << "\n";
 
   printf(
       "-- Host Info --:\n"
@@ -475,8 +486,14 @@ int main(int argc, char* argv[]) {
         host.substrings[i] = data_str.substr((i * 5), 5);
       } else {
         host.substrings[i] = data_str.substr((i * 5), 5);
-        for (int j = 0; j < (5 - (strlen(host.data) % 5)); j++)
-          host.substrings[i] += " ";
+        if (num_of_msgs != 1) {
+          for (int j = 0; j < (5 - (strlen(host.data) % 5)); j++)
+            host.substrings[i] += " ";
+        }
+        if (num_of_msgs == 1 && strlen(host.data) % 5 != 0) {
+          for (int j = 0; j < (5 - (strlen(host.data) % 5)); j++)
+            host.substrings[i] += " ";
+        }
       }
     }
   }
