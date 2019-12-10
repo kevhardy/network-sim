@@ -28,13 +28,14 @@ class Node {
   unordered_map<int, int> distance_map;  // Tracks distance to other nodes
   array<array<string, 100>, 10>
       seq_strings;  // messages by their source id and sequence
-  array<array<string, 100>, 10>
-      seq_redundants;              // redundant messages by their seq
-  unordered_set<int> seq_sources;  // tracks which sources receieved msgs from
-  array<int, 10> rtable;           // Routing table
-  array<int, 10> costs;            // Cost table
-  unordered_map<int, int> up;      // Tracks if neighbor is up. 0 == offline
-  vector<string> substrings;  // Substrings of data message for periodic sends
+  array<array<string, 50>, 10>
+      seq_redundants;  // redundant messages by their seq
+  unordered_map<int, int>
+      seq_sources;             // tracks which sources receieved msgs from
+  array<int, 10> rtable;       // Routing table
+  array<int, 10> costs;        // Cost table
+  unordered_map<int, int> up;  // Tracks if neighbor is up. 0 == offline
+  vector<string> substrings;   // Substrings of data message for periodic sends
   int substring_seq = 0;
 
   Node(int id = 0, int dur = 0, int dest = 0, char* data = 0, int delay = 100)
@@ -54,7 +55,7 @@ class Node {
 
   void datalink_receive_from_channel() {
     int bytes;
-    char buf[101];
+    char buf[1001];
     struct Message {
       int length = 0;
       string data = "";
@@ -90,7 +91,7 @@ class Node {
       int parseCount = 0;
 
       printf("- Neighbor ID #%d Read: start -\n", n);
-      while ((bytes = read(fd, buf, 100)) != 0) {
+      while ((bytes = read(fd, buf, 1000)) != 0) {
         for (int i = 0; i < bytes; i++) {
           try {
             char cur = buf[i];
@@ -382,61 +383,94 @@ class Node {
     // Check for incorrect message types
     if (msg_type != 'd' && msg_type != 'r') return;
 
-    // Transport Data Message
-    if (msg_type == 'd') {
-      src_id = msg[1] - 48;
-      temp += msg[3];
-      temp += msg[4];
-      if (!isdigit(temp[0]) || !isdigit(temp[1]))
-        throw "Message length must be digits.";
-      seq_num = stoi(temp);
+    try {
+      // Transport Data Message
+      if (msg_type == 'd') {
+        src_id = msg[1] - 48;
+        temp += msg[3];
+        temp += msg[4];
+        if (!isdigit(temp[0]) || !isdigit(temp[1]))
+          throw "Message length must be digits.";
+        seq_num = stoi(temp);
 
-      char* tp_msg = &msg[5];
-      string tp_msg_s = tp_msg;
-      printf("Transport Message:\nSrc: %d Sequence: %d\nMsg: %s\n", src_id,
-             seq_num, tp_msg);
+        char* tp_msg = &msg[5];
+        string tp_msg_s = tp_msg;
+        printf("Transport Message (Data):\nSrc: %d Sequence: %d\nMsg: %s\n",
+               src_id, seq_num, tp_msg);
 
-      // Order messages by their source and sequence number
-      seq_sources.insert(src_id);  // Track what sources I've received msgs from
-      seq_strings[src_id][seq_num] = tp_msg_s;
+        // Track what sources I've received msgs from
+        seq_sources[src_id] = seq_num;
 
-      // Transport Redundant Message
-    } else {
-      // TODO: Redundant Message parsing and ordering
-      printf("\n====REDUNDANT MESSAGE RECIEVED====\nMsg: \"%s\"\n", msg);
+        // Order messages by their source and sequence number
+        seq_strings[src_id][seq_num] = tp_msg_s;
+
+        // Transport Redundant Message
+      } else {
+        printf("\n====REDUNDANT MESSAGE RECIEVED====\nMsg: \"%s\"\n", msg);
+        src_id = msg[1] - 48;
+        temp += msg[3];
+        temp += msg[4];
+        if (!isdigit(temp[0]) || !isdigit(temp[1]))
+          throw "Message length must be digits.";
+        seq_num = stoi(temp);
+
+        char* redun_msg = &msg[5];
+        string redun_msg_s = redun_msg;
+        printf(
+            "Transport Message (Redundant):\nSrc: %d Sequence: %d\nMsg: %s\n",
+            src_id, seq_num, redun_msg);
+
+        // Order messages by their source and sequence number
+        seq_redundants[src_id][seq_num] = redun_msg_s;
+      }
+    } catch (...) {
+      cout << "Error parsing transport message.\n";
     }
   }
 
   void transport_send_string() {
     printf("\n\nCurrent substring_seq: %d\n", substring_seq);
+    string tp_msg = "";
+    string tp_redun = "";
+
     // Data Message
     if (substring_seq < substrings.size()) {
-      string tp_msg = "d";
+      tp_msg = "d";
       tp_msg += to_string(id);
       tp_msg += to_string(dest);
       tp_msg += substring_seq < 10 ? "0" + to_string(substring_seq)
                                    : to_string(substring_seq);
-      tp_msg += substrings[substring_seq];
+      tp_msg += substrings.at(substring_seq);
 
       network_receive_from_transport(tp_msg.c_str(), tp_msg.length(), dest);
     }
 
     // Redundant Message everytime 2 substrings are sent
-    if (substring_seq % 2 == 1) {
-      string tp_redun = "r";
+    if (substring_seq % 2 == 1 && substring_seq < substrings.size()) {
+      tp_redun = "r";
       tp_redun += to_string(id);
       tp_redun += to_string(dest);
       tp_redun += ((substring_seq / 2) < 10)
                       ? "0" + to_string(substring_seq / 2)
                       : to_string(substring_seq / 2);
 
-      string str1 = substrings[substring_seq - 1];
-      string str2 = substrings[substring_seq];
+      string str1 = substrings.at(substring_seq - 1);
+      string str2 = substrings.at(substring_seq);
       string redun_xor_msg = "";
-      printf("Str1: \"%s\" - Str2: \"%s\"\n", str1.c_str(), str2.c_str());
-      for (int i = 0; i < 5; i++) {
-        redun_xor_msg += str1[i] ^ str2[i];
+
+      string padding = "";
+      // XOR substrings and make sure they are at least 5 bytes
+      if (str1.length() >= 5 && str2.length() >= 5) {
+        for (int i = 0; i < 5; i++) {
+          int xor_num = (str1[i] ^ str2[i]);
+          padding = "";
+          if (xor_num < 10) padding += "0";
+          if (xor_num < 100) padding += "0";
+
+          redun_xor_msg += padding + to_string(xor_num);
+        }
       }
+
       tp_redun += redun_xor_msg;
       printf(
           "\n===Redundant Message TO SEND===\nFull MSG: %s - redun: \"%s\"\n",
@@ -449,13 +483,74 @@ class Node {
 
   void transport_output_all_received() {
     string fullmsg = "";
-    for (auto n : seq_sources) {
+    int n, substr_count;
+
+    if (seq_sources.empty()) return;
+
+    string fname = "node" + to_string(id) + "received";
+    int fd = open(fname.c_str(), (O_CREAT | O_WRONLY | O_APPEND), 0x1c0);
+    if (fd < 0) {
+      printf("Error opening\n");
+      exit(1);
+    }
+
+    for (auto pair : seq_sources) {
+      n = pair.first;
+      substr_count = pair.second;
       fullmsg = "";
-      for (int i = 0; i < 100; i++) {
-        fullmsg += seq_strings[n][i];
+
+      for (int i = 0; i <= substr_count; i++) {
+        if (seq_strings[n][i] != "") {
+          fullmsg += seq_strings[n][i];
+        }
+        // Missing a message. Try to recover with XOR redun:
+        else {
+          string string_pair;
+          string parity_str = seq_redundants[n][i / 2];
+
+          // Grab other string need for XOR
+          if (i % 2 == 0) {
+            string_pair = seq_strings[n][i + 1];
+          } else {
+            string_pair = seq_strings[n][i - 1];
+          }
+
+          // Missing both messages, unable to recover message
+          if (string_pair == "") {
+            printf("Missing both sequence strings. Unable to recover.\n");
+            return;
+          }
+          array<int, 5> redun_nums;
+          string chunk = "";
+          string recov_msg = "";
+
+          // Parse parity string for each num by each 3 digits
+          for (int i = 0; i < 5; i++) {
+            chunk = "";
+            chunk += parity_str[i * 3];
+            chunk += parity_str[i * 3 + 1];
+            chunk += parity_str[i * 3 + 2];
+            redun_nums.at(i) = stoi(chunk);
+          }
+          printf("Redun nums: ");
+          for (int i=0; i<redun_nums.size(); i++) cout << " " << redun_nums.at(i);
+          cout << "\n";
+          printf("String: \"%s\"\n", string_pair.c_str());
+          
+          // XOR operation
+          for (int i = 0; i < 5; i++) {
+            recov_msg += string_pair.at(i) ^ redun_nums.at(i);
+          }
+
+          fullmsg += recov_msg;
+        }
       }
       printf("Message From %d\nFull Msg: \"%s\"\n\n", n, fullmsg.c_str());
+      string write_msg =
+          "From " + to_string(n) + " received: " + fullmsg + "\n";
+      write(fd, write_msg.c_str(), write_msg.size());
     }
+    close(fd);
   }
 };
 
