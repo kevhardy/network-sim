@@ -26,14 +26,15 @@ class Node {
   unordered_set<int> neighbors;          // list of neighboring nodes by id
   unordered_map<int, int> files;         // file descriptors for each neighbor
   unordered_map<int, int> distance_map;  // Tracks distance to other nodes
-  unordered_map<int, vector<string>>
+  array<array<string, 100>, 10>
       seq_strings;  // messages by their source id and sequence
-  unordered_map<int, vector<string>>
-      seq_redundants;          // redundant messages by their seq
-  array<int, 10> rtable;       // Routing table
-  array<int, 10> costs;        // Cost table
-  unordered_map<int, int> up;  // Tracks if neighbor is up. 0 == offline
-  vector<string> substrings;   // Substrings of data message for periodic sends
+  array<array<string, 100>, 10>
+      seq_redundants;              // redundant messages by their seq
+  unordered_set<int> seq_sources;  // tracks which sources receieved msgs from
+  array<int, 10> rtable;           // Routing table
+  array<int, 10> costs;            // Cost table
+  unordered_map<int, int> up;      // Tracks if neighbor is up. 0 == offline
+  vector<string> substrings;  // Substrings of data message for periodic sends
   int substring_seq = 0;
 
   Node(int id = 0, int dur = 0, int dest = 0, char* data = 0, int delay = 100)
@@ -47,6 +48,7 @@ class Node {
         distance_map(),
         seq_strings(),
         seq_redundants(),
+        seq_sources(),
         up(),
         substrings() {}
 
@@ -390,18 +392,24 @@ class Node {
       seq_num = stoi(temp);
 
       char* tp_msg = &msg[5];
+      string tp_msg_s = tp_msg;
       printf("Transport Message:\nSrc: %d Sequence: %d\nMsg: %s\n", src_id,
              seq_num, tp_msg);
 
-      // TODO: order messages by their source and sequence number
+      // Order messages by their source and sequence number
+      seq_sources.insert(src_id);  // Track what sources I've received msgs from
+      seq_strings[src_id][seq_num] = tp_msg_s;
 
       // Transport Redundant Message
     } else {
       // TODO: Redundant Message parsing and ordering
+      printf("\n====REDUNDANT MESSAGE RECIEVED====\nMsg: \"%s\"\n", msg);
     }
   }
 
   void transport_send_string() {
+    printf("\n\nCurrent substring_seq: %d\n", substring_seq);
+    // Data Message
     if (substring_seq < substrings.size()) {
       string tp_msg = "d";
       tp_msg += to_string(id);
@@ -409,9 +417,44 @@ class Node {
       tp_msg += substring_seq < 10 ? "0" + to_string(substring_seq)
                                    : to_string(substring_seq);
       tp_msg += substrings[substring_seq];
-      substring_seq++;
 
       network_receive_from_transport(tp_msg.c_str(), tp_msg.length(), dest);
+    }
+
+    // Redundant Message everytime 2 substrings are sent
+    if (substring_seq % 2 == 1) {
+      string tp_redun = "r";
+      tp_redun += to_string(id);
+      tp_redun += to_string(dest);
+      tp_redun += ((substring_seq / 2) < 10)
+                      ? "0" + to_string(substring_seq / 2)
+                      : to_string(substring_seq / 2);
+
+      string str1 = substrings[substring_seq - 1];
+      string str2 = substrings[substring_seq];
+      string redun_xor_msg = "";
+      printf("Str1: \"%s\" - Str2: \"%s\"\n", str1.c_str(), str2.c_str());
+      for (int i = 0; i < 5; i++) {
+        redun_xor_msg += str1[i] ^ str2[i];
+      }
+      tp_redun += redun_xor_msg;
+      printf(
+          "\n===Redundant Message TO SEND===\nFull MSG: %s - redun: \"%s\"\n",
+          tp_redun.c_str(), redun_xor_msg.c_str());
+      network_receive_from_transport(tp_redun.c_str(), tp_redun.length(), dest);
+    }
+
+    substring_seq++;
+  }
+
+  void transport_output_all_received() {
+    string fullmsg = "";
+    for (auto n : seq_sources) {
+      fullmsg = "";
+      for (int i = 0; i < 100; i++) {
+        fullmsg += seq_strings[n][i];
+      }
+      printf("Message From %d\nFull Msg: \"%s\"\n\n", n, fullmsg.c_str());
     }
   }
 };
@@ -497,6 +540,10 @@ int main(int argc, char* argv[]) {
       }
     }
   }
+
+  for (auto arr : host.seq_strings) arr.fill("");
+  for (auto arr : host.seq_redundants) arr.fill("");
+
   int send_msg_counter = 0;
 
   // Main program loop
@@ -521,9 +568,10 @@ int main(int argc, char* argv[]) {
       }
       send_msg_counter++;
     }
-
     sleep(1);
   }
+
+  host.transport_output_all_received();
 
   // Closing all files
   for (auto fd : host.files) close(fd.second);
